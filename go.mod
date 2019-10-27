@@ -1,4 +1,4 @@
-module github.com/ssgelm.cookiejarparser
+module github.com/ssgelm/cookiejarparser
 
 go 1.13
 

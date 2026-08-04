@@ -1,0 +1,12 @@
+version: 2
+
+updates:
+  # Keeps the actions pinned in .github/workflows current.  Grouped into a
+  # single monthly PR, since a routine bump is not worth three reviews.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']

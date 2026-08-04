@@ -1,0 +1,5 @@
+# Test cookie file with a malformed line
+
+example.com	FALSE	/	FALSE	0	test_cookie	1
+example.com	FALSE	/	FALSE
+#HttpOnly_example.com	FALSE	/	FALSE	0	test_cookie_httponly	1

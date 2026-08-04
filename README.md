@@ -42,12 +42,35 @@ func main() {
 
 ### Malformed lines
 
-`LoadCookieJarFile` stops at the first line it cannot parse and returns an error
-naming that line:
+By default `LoadCookieJarFile` stops at the first line it cannot parse and
+returns an error naming that line:
 
 ```
 incorrect number of fields in line 4.  Expected 6 or 7, got 4.
 ```
+
+To skip malformed lines instead and keep whatever else the file contains, pass
+`WithLenient`:
+
+```golang
+cookies, err := cookiejarparser.LoadCookieJarFile("cookies.txt",
+	cookiejarparser.WithLenient())
+```
+
+Lenient mode drops those lines without telling you.  To see them, add
+`WithMalformedLineHandler`:
+
+```golang
+cookies, err := cookiejarparser.LoadCookieJarFile("cookies.txt",
+	cookiejarparser.WithLenient(),
+	cookiejarparser.WithMalformedLineHandler(func(lineNum int, err error) {
+		log.Printf("skipping line %d: %v", lineNum, err)
+	}))
+```
+
+Lenient mode covers lines that fail to parse.  If `LoadCookieJarFile` cannot
+read the file at all it still returns an error, since that leaves the cookie jar
+truncated at an arbitrary point.
 
 ## License
 

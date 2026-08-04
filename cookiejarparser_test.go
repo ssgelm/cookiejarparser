@@ -90,7 +90,11 @@ var exampleURL = &url.URL{
 	Host:   "example.com",
 }
 
-func TestLoadCookieJarFile(t *testing.T) {
+// sampleCookieJar returns the jar data/cookies.txt produces, and the one
+// data/cookies_malformed.txt produces once the parser skips its bad line.
+func sampleCookieJar(t *testing.T) http.CookieJar {
+	t.Helper()
+
 	sampleCookies := []*http.Cookie{
 		{
 			Domain:   "example.com",
@@ -109,11 +113,17 @@ func TestLoadCookieJarFile(t *testing.T) {
 			Secure:   false,
 		},
 	}
-	sampleCookieJar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
 		t.Fatalf("Could not create sample cookie jar: %s", err)
 	}
-	sampleCookieJar.SetCookies(exampleURL, sampleCookies)
+	jar.SetCookies(exampleURL, sampleCookies)
+
+	return jar
+}
+
+func TestLoadCookieJarFile(t *testing.T) {
+	sampleCookieJar := sampleCookieJar(t)
 
 	cookieJar, err := LoadCookieJarFile("data/cookies.txt")
 
@@ -140,6 +150,54 @@ func TestLoadCookieJarFileMalformed(t *testing.T) {
 	}
 }
 
+func TestLoadCookieJarFileLenient(t *testing.T) {
+	sampleCookieJar := sampleCookieJar(t)
+
+	// The malformed line sits between the two valid cookies, so recovering both
+	// of them proves parsing continued past it.
+	cookieJar, err := LoadCookieJarFile("data/cookies_malformed.txt", WithLenient())
+	if err != nil {
+		t.Fatalf("Lenient cookie jar creation failed.  Expected err: nil, got: %s", err)
+	}
+
+	c1, _ := json.Marshal(cookieJar.Cookies(exampleURL))
+	c2, _ := json.Marshal(sampleCookieJar.Cookies(exampleURL))
+
+	if !reflect.DeepEqual(c1, c2) || err != nil {
+		t.Errorf("Lenient cookie jar creation failed.  Expected:\n  cookieJar: %s err: nil,\ngot:\n  cookieJar: %s err: %s", c2, c1, err)
+	}
+}
+
+func TestLoadCookieJarFileMalformedLineHandler(t *testing.T) {
+	var gotLines []int
+	var gotErrs []error
+	handler := func(lineNum int, err error) {
+		gotLines = append(gotLines, lineNum)
+		gotErrs = append(gotErrs, err)
+	}
+
+	if _, err := LoadCookieJarFile("data/cookies_malformed.txt", WithLenient(), WithMalformedLineHandler(handler)); err != nil {
+		t.Fatalf("Lenient cookie jar creation failed.  Expected err: nil, got: %s", err)
+	}
+
+	if !reflect.DeepEqual(gotLines, []int{4}) {
+		t.Errorf("Handler called for the wrong lines.  Expected: [4], got: %v", gotLines)
+	}
+	if len(gotErrs) != 1 || gotErrs[0] == nil {
+		t.Fatalf("Handler was not passed the parse error.  Got: %v", gotErrs)
+	}
+
+	// Without WithLenient the handler must not fire, since LoadCookieJarFile
+	// reports the bad line through its error instead.
+	gotLines = nil
+	if _, err := LoadCookieJarFile("data/cookies_malformed.txt", WithMalformedLineHandler(handler)); err == nil {
+		t.Error("Strict cookie jar creation did not fail.  Expected an error, got nil")
+	}
+	if gotLines != nil {
+		t.Errorf("Handler was called in strict mode.  Expected no calls, got lines: %v", gotLines)
+	}
+}
+
 func TestLoadCookieJarFileScanError(t *testing.T) {
 	// A line longer than bufio.Scanner's token limit stops the scan early.  That
 	// must surface as an error rather than a cookie jar missing half its file.
@@ -150,11 +208,21 @@ func TestLoadCookieJarFileScanError(t *testing.T) {
 		t.Fatalf("Could not write test cookie file: %s", err)
 	}
 
-	cookieJar, err := LoadCookieJarFile(path)
-	if err == nil {
-		t.Fatalf("Loading a cookie jar with an over-long line did not fail.  Expected an error, got cookieJar: %v err: nil", cookieJar)
-	}
-	if !errors.Is(err, bufio.ErrTooLong) {
-		t.Errorf("Unexpected error loading a cookie jar with an over-long line.  Expected %s, got: %s", bufio.ErrTooLong, err)
+	// A scan error truncates the file at an arbitrary point, so unlike a
+	// malformed line LoadCookieJarFile reports it even in lenient mode.
+	for _, mode := range []struct {
+		name string
+		opts []Option
+	}{
+		{"strict", nil},
+		{"lenient", []Option{WithLenient()}},
+	} {
+		cookieJar, err := LoadCookieJarFile(path, mode.opts...)
+		if err == nil {
+			t.Fatalf("Loading a cookie jar with an over-long line in %s mode did not fail.  Expected an error, got cookieJar: %v err: nil", mode.name, cookieJar)
+		}
+		if !errors.Is(err, bufio.ErrTooLong) {
+			t.Errorf("Unexpected error loading a cookie jar with an over-long line in %s mode.  Expected %s, got: %s", mode.name, bufio.ErrTooLong, err)
+		}
 	}
 }

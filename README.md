@@ -40,6 +40,15 @@ func main() {
 }
 ```
 
+### Malformed lines
+
+`LoadCookieJarFile` stops at the first line it cannot parse and returns an error
+naming that line:
+
+```
+incorrect number of fields in line 4.  Expected 6 or 7, got 4.
+```
+
 ## License
 
 MIT

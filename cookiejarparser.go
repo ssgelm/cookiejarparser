@@ -46,11 +46,11 @@ func parseCookieLine(cookieLine string, lineNum int) (*http.Cookie, error) {
 	}
 	cookie.Secure, err = strconv.ParseBool(cookieFields[3])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not parse secure field in line %d: %w", lineNum, err)
 	}
 	expiresInt, err := strconv.ParseInt(cookieFields[4], 10, 64)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not parse expiration field in line %d: %w", lineNum, err)
 	}
 	if expiresInt > 0 {
 		cookie.Expires = time.Unix(expiresInt, 0)
@@ -64,6 +64,9 @@ func parseCookieLine(cookieLine string, lineNum int) (*http.Cookie, error) {
 }
 
 // LoadCookieJarFile takes a path to a curl (netscape) cookie jar file and crates a go http.CookieJar with the contents
+//
+// LoadCookieJarFile stops at the first malformed line and returns an error
+// naming it.
 func LoadCookieJarFile(path string) (http.CookieJar, error) {
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
@@ -76,16 +79,17 @@ func LoadCookieJarFile(path string) (http.CookieJar, error) {
 	}
 	defer file.Close()
 
-	lineNum := 1
+	lineNum := 0
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		lineNum++
 		cookieLine := scanner.Text()
 		cookie, err := parseCookieLine(cookieLine, lineNum)
-		if cookie == nil {
-			continue
-		}
 		if err != nil {
 			return nil, err
+		}
+		if cookie == nil {
+			continue
 		}
 
 		var cookieScheme string
@@ -102,8 +106,10 @@ func LoadCookieJarFile(path string) (http.CookieJar, error) {
 		cookies := jar.Cookies(cookieUrl)
 		cookies = append(cookies, cookie)
 		jar.SetCookies(cookieUrl, cookies)
+	}
 
-		lineNum++
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
 	return jar, nil
